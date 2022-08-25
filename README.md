@@ -18,6 +18,7 @@ TODO
 
 Known issue:
 * Autoplay keysound not registered in osu's Event (o2ma1082, o2ma106, o2ma392)
+* channel 0 (o2ma2673)
 
 ### 2022.08.24 - 0.2.0
 

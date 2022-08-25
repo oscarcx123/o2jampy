@@ -17,7 +17,7 @@ class OJNExtract():
         big5 - Traditional Chinese
         euc_kr - Korean
         '''
-        self.enc = "gb18030"
+        self.enc = "euc_kr"
 
     # Just an example
     # More info: https://open2jam.wordpress.com/the-ojn-documentation/
@@ -67,7 +67,10 @@ class OJNExtract():
         print(f"[ERROR] <{self.song_id}> {self.artist} - {self.title} ({self.noter}) [{self.curr_diff}]: {msg}")
 
     def warning_log(self, msg):
-        print(f"[Warning] <{self.song_id}> {self.artist} - {self.title} ({self.noter}) [{self.curr_diff}]: {msg}")
+        print(f"[WARNING] <{self.song_id}> {self.artist} - {self.title} ({self.noter}) [{self.curr_diff}]: {msg}")
+
+    def info_log(self, msg):
+        print(f"[INFO] {msg}")
 
     # remove illegal filename characters on Windows
     def safe_filename(self, filename):
@@ -163,10 +166,10 @@ class OJNExtract():
             int(self.LE(self.hexdata[72:76]), 16)
         ]
 
-        self.title = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[108:172]))).decode(self.enc)
-        self.artist = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[172:204]))).decode(self.enc)
-        self.noter = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[204:236]))).decode(self.enc)
-        self.ojm_name = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[236:268]))).decode(self.enc)
+        self.title = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[108:172]))).decode(self.enc).strip(" ")
+        self.artist = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[172:204]))).decode(self.enc).strip(" ")
+        self.noter = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[204:236]))).decode(self.enc).strip(" ")
+        self.ojm_name = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[236:268]))).decode(self.enc).strip(" ")
 
         self.cover_size = int(self.LE(self.hexdata[268:272]), 16)
 
@@ -189,6 +192,26 @@ class OJNExtract():
             self.diff_offset[2] - self.diff_offset[1],
             self.cover_offset - self.diff_offset[2],
         ]
+
+        # skip duplicate chart (with same diff size)
+        self.skip_diff = [False] * 3
+
+        if self.diff_size[0] == self.diff_size[1]:
+            self.skip_diff[0] = True
+        if self.diff_size[1] == self.diff_size[2]:
+            self.skip_diff[1] = True
+        if self.diff_size[2] == self.diff_size[0]:
+            self.skip_diff[2] = True
+
+        # if all diffs are the same, only extract the last one
+        if self.skip_diff == [True] * 3:
+            self.skip_diff[2] = False
+
+        if self.skip_diff != [False] * 3:
+            for idx in range(len(self.skip_diff)):
+                if self.skip_diff[idx]: 
+                    self.info_log(f"Duplicate diff: {self.diff_scale[idx]}, will skip!")
+
 
     # parse jpeg background image
     def parse_image(self):
@@ -229,6 +252,11 @@ class OJNExtract():
         }
         
         for diff_idx in range(len(self.diff_size)):
+            # skip if duplicate
+            if self.skip_diff[diff_idx]:
+                continue
+            
+            # get diff hexdata
             diff_start = self.diff_offset[diff_idx]
             diff_end = diff_start + self.diff_size[diff_idx]
             diff_raw = self.hexdata[diff_start:diff_end]
@@ -282,7 +310,7 @@ class OJNExtract():
                 # When the channel is 0 (fractional measure), the 4 bytes are a float, indicating how much of the measure is actually used, so if the value is 0.75, the size of this measure will be only 75% of a normal measure.
                 if channel == 0:
                     frac_measure = self.SingleFloat(self.LE(diff_raw[pos:pos+4]))
-                    print("channel == 0, not implemented!")
+                    self.error_log("channel == 0, not implemented!")
 
                 # When the channel is 1 (BPM change) these 4 bytes are a float with the new BPM.
                 elif channel == 1:
@@ -348,7 +376,7 @@ class OJNExtract():
                             match.sort(key=lambda x: x[1], reverse=True) # higher measure comes first
 
                             paired = False
-
+                                
                             # incase len(match) > 1
                             for idx in range(len(match)):
                                 # find shortest possible paired ln to avoid stacked notes
@@ -362,17 +390,15 @@ class OJNExtract():
                             if not paired:
                                 self.warning_log(f"Failed to pair ln notes! Usually this warning can be ignored.")
                                 if self.debug:
-                                    error_info = {
+                                    ln_tail_info = {
                                     "package_idx": package_idx,
                                     "measure": measure,
-                                    "channel": channel,
-                                    "events": events,
-                                    "ln_notes": ln_notes,
-                                    "match": match,
                                     "lane": lane,
                                     "measure_end": measure_end,
                                     }
-                                    print(f"{error_info}")
+                                    print(f"ln_tail_info = {ln_tail_info}")
+                                    print(f"match = {match}")
+                                    print(f"ln_notes = {ln_notes}")
                 
                 # channel is 9-22
                 else:
@@ -394,7 +420,7 @@ class OJNExtract():
                 pos += events * 4
             
             if len(ln_notes) > 0:
-                self.warning_log("ln_notes = {ln_notes}")
+                self.warning_log(f"ln_notes = {ln_notes}")
             
             notes.sort(key=lambda x: x["measure_start"])
             self.diff_notes[diff_idx] = notes
@@ -410,6 +436,10 @@ class OJNExtract():
             [2, 5]
         ]
         for diff_idx in range(len(self.diff_size)):
+            # skip if duplicate
+            if self.skip_diff[diff_idx]:
+                continue
+            
             self.curr_diff = f"lvl {self.lvl[diff_idx]}"
             
             # Dynamic hp & od
@@ -488,9 +518,11 @@ class OJNExtract():
             for t_idx in range(len(self.diff_timings[diff_idx])):
                 t: list = self.diff_timings[diff_idx][t_idx] # t = [bpm, measure]
                 ms_per_measure = 60000 / t[0]
+                # ignore abnormal timing points (extremely large bpm)
                 if ms_per_measure < 0.001:
-                    ms_per_measure = 0.001
-                    self.error_log(f"Abnormal timing points! TimingPoints = {self.diff_timings[diff_idx]}; bpm = {t[0]}")
+                    continue
+                    #ms_per_measure = 0.001
+                    #self.error_log(f"Abnormal timing points! TimingPoints = {self.diff_timings[diff_idx]}; bpm = {t[0]}")
                 
                 if t_idx == 0:
                     offset = round(t[1]*ms_previous_bpm)
@@ -528,7 +560,7 @@ class OJNExtract():
             if len(note_keysound) < 5:
                 flag_no_keysound = True
                 if self.debug:
-                    print(f"No keysound found for [{self.curr_diff}]")
+                    self.info_log(f"No keysound found for [{self.curr_diff}]")
                     
             # populate all notes in osu format
             for n in self.diff_notes[diff_idx]:
@@ -592,7 +624,7 @@ class OJNExtract():
             with open(jpg_filename, "wb") as f:
                 f.write(self.image_raw)
         else:
-            print(f"Song id = {self.song_id}, no image found")
+            self.info_log(f"Song id = {self.song_id}, no image found")
 
     # use OJMExtract to extract audio files
     def parse_audio(self):
@@ -611,9 +643,9 @@ class OJNExtract():
             self.song_path = os.path.join(self.output_path, self.safe_filename(f"{self.song_id} {self.artist} - {self.title}"))
             
             if os.path.exists(self.song_path):
-                print(f"Song id = {self.song_id} exists, skip!")
+                self.info_log(f"Song id = {self.song_id} exists, skip!")
             else:
-                print(f"Song id = {self.song_id}, parsing...")
+                self.info_log(f"Song id = {self.song_id}, parsing...")
                 self.parse_image()
                 self.parse_diff()
                 # create directory if not exist
@@ -621,4 +653,4 @@ class OJNExtract():
                 os.makedirs(os.path.dirname(os.path.join(self.song_path, "cow.osu")), exist_ok=True)
                 self.parse_audio()
                 self.export_osu()
-                print(f"Song id = {self.song_id}, success!")
+                self.info_log(f"Song id = {self.song_id}, success!")
