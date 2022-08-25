@@ -61,12 +61,16 @@ class OJMExtract():
             "04", "00"
         ]
 
+        self.acc_keybyte = 0xFF
+        self.acc_counter = 0
+
         self.input_path = os.path.join(os.getcwd(), "input")
         self.output_path = os.path.join(os.getcwd(), "output")
 
         # These two will be passed from OJNExtract
         self.enc = None
         self.song_path = None
+        self.debug = False
         # This will be passed when dump_file() is called
         self.filename = None
     
@@ -136,22 +140,20 @@ class OJMExtract():
 
     # 2nd decryption for OMC_WAV
     def acc_xor(self, buf):
-        acc_keybyte = 0xFF
-        acc_counter = 0
         temp = 0
         this_byte = 0
 
         for i in range(len(buf)):
             temp = this_byte = int(buf[i], 16)
 
-            if ((acc_keybyte << acc_counter) & 0x80) != 0:
+            if ((self.acc_keybyte << self.acc_counter) & 0x80) != 0:
                 this_byte = 255 - this_byte
 
             buf[i] = hex(this_byte)[2:].upper().zfill(2)
-            acc_counter += 1
-            if acc_counter > 7:
-                acc_counter = 0
-                acc_keybyte = temp
+            self.acc_counter += 1
+            if self.acc_counter > 7:
+                self.acc_counter = 0
+                self.acc_keybyte = temp
         return buf
 
     def dump_file(self, filename):
@@ -185,6 +187,10 @@ class OJMExtract():
         padding = int(self.LE(self.hexdata[24:28]), 16)
 
         pos = 28
+
+        # reset global variables
+        self.acc_keybyte = 0xFF
+        self.acc_counter = 0
         
         # TODO: need to test if this is correct?
         # ogg data section
@@ -230,6 +236,8 @@ class OJMExtract():
             ogg_bytes = bytes.fromhex(self.BE(ogg_data))
 
             ogg_filename = os.path.join(self.song_path, f"normal-hitnormal{ref}.ogg")
+            if self.debug:
+                print(f"Extract normal-hitnormal{ref}.ogg")
             if len(ogg_bytes) > 0:
                 with open(ogg_filename, "wb") as f:
                     f.write(ogg_bytes)
@@ -246,7 +254,7 @@ class OJMExtract():
         filesize = int(self.LE(self.hexdata[16:20]), 16)
 
         pos = 20
-        sample_id = 0 # wav samples use id 0~999
+        sample_id = 2 # wav samples use id 0~999
 
         # reset global variables (TODO: Maybe Remove)
         acc_keybyte = "FF"
@@ -306,7 +314,7 @@ class OJMExtract():
             sample_id += 1
 
         # ogg data section
-        sample_id = 1001
+        sample_id = 1002
         while pos < filesize:
             # OMC_OGG_header (sample header, 36 bytes)
             # sample_name = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[pos:pos+32]))).decode(self.enc)

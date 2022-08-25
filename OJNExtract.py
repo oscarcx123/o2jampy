@@ -510,22 +510,43 @@ class OJNExtract():
                         offset = self.diff_timings[diff_idx][t_idx][2] + offset_delta
                         return math.floor(offset)
 
+            # If all hitsounds are the same, they will be removed
+            note_keysound = set()
+            flag_no_keysound = False
             for n in self.diff_notes[diff_idx]:
+                note_keysound.add(n['sample_value'])
+
+            # if unique hitsound < 5, it's unlikely that the whole map is hitsounded
+            if len(note_keysound) < 5:
+                flag_no_keysound = True
+                if self.debug:
+                    print(f"No keysound found for [{self.curr_diff}]")
+                    
+            # populate all notes in osu format
+            for n in self.diff_notes[diff_idx]:
+                ext = "wav" if n['sample_value'] < 1000 else "ogg"
+                hitsound = f"normal-hitnormal{n['sample_value'] + 1}.{ext}"
                 # rice
                 if n["type"] == 0:
                     offset = get_note_offset(n['measure_start'])
-                    osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset},1,0,0:0:0:{n['sample_volume']}:normal-hitnormal{n['sample_value']}.ogg")
+                    if flag_no_keysound:
+                        osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset},1,0,0:0:0:0:")
+                    else:
+                        osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset},1,0,0:0:0:100:{hitsound}")
                 else:
                     offset_start = get_note_offset(n['measure_start'])
                     offset_end = get_note_offset(n['measure_end'])
-                    osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:{n['sample_volume']}:normal-hitnormal{n['sample_value']}.ogg")
+                    if flag_no_keysound:
+                        osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:0:")
+                    else:
+                        osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:100:{hitsound}")
 
-            # Calculate ogg samples here
+            # [Event] Calculate autoplay ogg samples here
             ogg_volumes = [math.floor(x * 100 / 15) for x in range(15)]
             ogg_volumes.sort(reverse=True)
 
             for ogg in self.diff_ogg_samples[diff_idx]:
-                sample_id = "1" + str(ogg[0]).zfill(3)
+                sample_id = int("1" + str(ogg[0]).zfill(3)) + 1
                 osu_events.append(f"5,{get_note_offset(ogg[2])},0,\"normal-hitnormal{sample_id}.ogg\",{ogg_volumes[ogg[1]]}")
 
             sections = [
@@ -566,6 +587,7 @@ class OJNExtract():
         ojm = OJMExtract()
         ojm.song_path = self.song_path
         ojm.enc = self.enc
+        ojm.debug = self.debug
         ojm.dump_file(self.ojm_name)
     
     
