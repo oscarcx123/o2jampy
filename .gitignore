@@ -3,6 +3,7 @@ input/
 output/
 test/
 passed/
+error/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

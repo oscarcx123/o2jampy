@@ -64,8 +64,10 @@ class OJNExtract():
         print(f"ojm_name = {self.ojm_name}")
 
     def error_log(self, msg):
-        print(f"[ERROR] <{self.song_id}> {self.artist} - {self.title} ({self.noter}) [{self.curr_diff}]")
-        print(msg)
+        print(f"[ERROR] <{self.song_id}> {self.artist} - {self.title} ({self.noter}) [{self.curr_diff}]: {msg}")
+
+    def warning_log(self, msg):
+        print(f"[Warning] <{self.song_id}> {self.artist} - {self.title} ({self.noter}) [{self.curr_diff}]: {msg}")
 
     # remove illegal filename characters on Windows
     def safe_filename(self, filename):
@@ -358,7 +360,9 @@ class OJNExtract():
                                     break
 
                             if not paired:
-                                error_info = {
+                                self.warning_log(f"Failed to pair ln notes! Usually this warning can be ignored.")
+                                if self.debug:
+                                    error_info = {
                                     "package_idx": package_idx,
                                     "measure": measure,
                                     "channel": channel,
@@ -367,8 +371,9 @@ class OJNExtract():
                                     "match": match,
                                     "lane": lane,
                                     "measure_end": measure_end,
-                                }
-                                self.error_log(f"Failed to pair ln notes! {error_info}")
+                                    }
+                                    print(f"{error_info}")
+                
                 # channel is 9-22
                 else:
                     for i in range(events):
@@ -387,6 +392,9 @@ class OJNExtract():
                             print(f"ogg_sample = {[sample_value, sample_volume, measure + i / events]}")
 
                 pos += events * 4
+            
+            if len(ln_notes) > 0:
+                self.warning_log("ln_notes = {ln_notes}")
             
             notes.sort(key=lambda x: x["measure_start"])
             self.diff_notes[diff_idx] = notes
@@ -524,7 +532,15 @@ class OJNExtract():
                     
             # populate all notes in osu format
             for n in self.diff_notes[diff_idx]:
-                ext = "wav" if n['sample_value'] < 1000 else "ogg"
+                # determine audio extension
+                if self.ojm.ext == "ogg":
+                    ext = "ogg"
+                else:
+                    if n['sample_value'] < 1000:
+                        ext = "wav"
+                    else:
+                        ext = "ogg"
+
                 hitsound = f"normal-hitnormal{n['sample_value'] + 1}.{ext}"
                 # rice
                 if n["type"] == 0:
@@ -567,10 +583,6 @@ class OJNExtract():
             
             
             osu_filename = os.path.join(self.song_path, self.safe_filename(f"{self.artist} - {self.title} ({self.noter}) [lvl {self.lvl[diff_idx]}].osu"))
-            # create directory if not exist
-            # https://stackoverflow.com/questions/12517451/automatically-creating-directories-with-file-output
-            os.makedirs(os.path.dirname(osu_filename), exist_ok=True)
-
             with open((osu_filename), "w", encoding="utf-8") as f:
                 f.write(osu_file)
 
@@ -584,11 +596,11 @@ class OJNExtract():
 
     # use OJMExtract to extract audio files
     def parse_audio(self):
-        ojm = OJMExtract()
-        ojm.song_path = self.song_path
-        ojm.enc = self.enc
-        ojm.debug = self.debug
-        ojm.dump_file(self.ojm_name)
+        self.ojm = OJMExtract()
+        self.ojm.song_path = self.song_path
+        self.ojm.enc = self.enc
+        self.ojm.debug = self.debug
+        self.ojm.dump_file(self.ojm_name)
     
     
     def o2jam_to_osu(self, ojn_list):
@@ -604,6 +616,9 @@ class OJNExtract():
                 print(f"Song id = {self.song_id}, parsing...")
                 self.parse_image()
                 self.parse_diff()
-                self.export_osu()
+                # create directory if not exist
+                # https://stackoverflow.com/questions/12517451/automatically-creating-directories-with-file-output
+                os.makedirs(os.path.dirname(os.path.join(self.song_path, "cow.osu")), exist_ok=True)
                 self.parse_audio()
+                self.export_osu()
                 print(f"Song id = {self.song_id}, success!")

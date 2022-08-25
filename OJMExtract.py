@@ -73,6 +73,9 @@ class OJMExtract():
         self.debug = False
         # This will be passed when dump_file() is called
         self.filename = None
+
+        # This will be detected and will be used by OJNExtract
+        self.ext = ""
     
     # little-endian (LE), hexdata to hexstring
     def LE(self, hexdata: list[str]) -> str:
@@ -178,6 +181,7 @@ class OJMExtract():
             print("Unknown Signature!")
 
     def parse_M30(self):
+        self.ext = "ogg" # M30 definitely ogg
         # M30_header (28 bytes)
         file_format_version = int(self.LE(self.hexdata[4:8]), 16)
         encryption_flag = int(self.LE(self.hexdata[8:12]), 16)
@@ -206,7 +210,7 @@ class OJMExtract():
             codec_code = int(self.LE(self.hexdata[pos+36:pos+38]), 16)
             unk_fixed = int(self.LE(self.hexdata[pos+38:pos+40]), 16)
             music_flag = int(self.LE(self.hexdata[pos+40:pos+44]), 16)
-            ref = int(self.LE(self.hexdata[pos+44:pos+46]), 16)
+            ref = (int(self.LE(self.hexdata[pos+44:pos+46]), 16) + 2)
             unk_zero = int(self.LE(self.hexdata[pos+46:pos+48]), 16)
             pcm_samples = int(self.LE(self.hexdata[pos+48:pos+52]), 16)
             pos += 52
