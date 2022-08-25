@@ -1,6 +1,7 @@
 ref/
 input/
 output/
+test/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

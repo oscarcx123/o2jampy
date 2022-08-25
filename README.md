@@ -8,7 +8,6 @@ TODO
 
 ## Development Roadmap
 
-* OJM (M30 format) extraction
 * Auto convert ogg -> mp3
 * Option to remove all bpm change
 * Option to add green line multiplier (keep bpm change but remove sv effect)
@@ -16,6 +15,11 @@ TODO
 * Maybe GUI? (very low priority)
 
 ## Updates
+
+### 2022.08.24 - 0.2.0
+
+* [x] OJM (M30 format) extraction
+* Still Struggling with OMC WAV Export
 
 ### 2022.08.23 - 0.1.0
 

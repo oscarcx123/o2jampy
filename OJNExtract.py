@@ -9,6 +9,7 @@ class OJNExtract():
         self.input_path = os.path.join(os.getcwd(), "input")
         self.output_path = os.path.join(os.getcwd(), "output")
         self.settings()
+        self.debug = False
 
     def settings(self):
         '''Common Codecs
@@ -373,14 +374,17 @@ class OJNExtract():
                     for i in range(events):
                         note_type = int(self.LE([diff_raw[pos+4*i+3]]), 16)
 
+                        sample_value = int(self.LE(diff_raw[pos+4*i:pos+4*i+2]), 16)
+                        
                         # note_type = 4 -> normal note & use ogg sample
                         if note_type != 4:
-                            continue
+                            continue                    
                         
-                        sample_value = int(self.LE(diff_raw[pos+4*i:pos+4*i+2]), 16)
                         sample_volume = int(diff_raw[pos+4*i+2][0], 16)
                         ogg_samples.append([sample_value, sample_volume, measure + i / events])
-                        print(ogg_samples)
+                        if self.debug:
+                            print(f"{diff_raw[pos+4*i:pos+4*i+4]}, channel = {channel}")
+                            print(f"ogg_sample = {[sample_value, sample_volume, measure + i / events]}")
 
                 pos += events * 4
             
@@ -510,11 +514,11 @@ class OJNExtract():
                 # rice
                 if n["type"] == 0:
                     offset = get_note_offset(n['measure_start'])
-                    osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset},1,0,0:0:0:{n['sample_volume']}:{n['sample_value']}.ogg")
+                    osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset},1,0,0:0:0:{n['sample_volume']}:normal-hitnormal{n['sample_value']}.ogg")
                 else:
                     offset_start = get_note_offset(n['measure_start'])
                     offset_end = get_note_offset(n['measure_end'])
-                    osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:{n['sample_volume']}:{n['sample_value']}.ogg")
+                    osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:{n['sample_volume']}:normal-hitnormal{n['sample_value']}.ogg")
 
             # Calculate ogg samples here
             ogg_volumes = [math.floor(x * 100 / 15) for x in range(15)]
@@ -568,12 +572,14 @@ class OJNExtract():
     def o2jam_to_osu(self, ojn_list):
         for ojn in ojn_list:
             self.parse_ojn_header(ojn)
-            #self._ojn_header_debug()
+            if self.debug:
+                self._ojn_header_debug()
             self.song_path = os.path.join(self.output_path, self.safe_filename(f"{self.song_id} {self.artist} - {self.title}"))
             
             if os.path.exists(self.song_path):
                 print(f"Song id = {self.song_id} exists, skip!")
             else:
+                print(f"Song id = {self.song_id}, parsing...")
                 self.parse_image()
                 self.parse_diff()
                 self.export_osu()
