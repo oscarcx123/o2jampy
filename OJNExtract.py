@@ -17,7 +17,7 @@ class OJNExtract():
         big5 - Traditional Chinese
         euc_kr - Korean
         '''
-        self.enc = "euc_kr"
+        self.enc = "gb18030"
 
     # Just an example
     # More info: https://open2jam.wordpress.com/the-ojn-documentation/
@@ -194,13 +194,14 @@ class OJNExtract():
         ]
 
         # skip duplicate chart (with same diff size)
+        # Sometimes diff_size are the same but playable notes are different (o2ma392 - God Knows Piano Ver by Doaz)
         self.skip_diff = [False] * 3
 
-        if self.diff_size[0] == self.diff_size[1]:
+        if self.diff_size[0] == self.diff_size[1] and self.playable_notes[0] == self.playable_notes[1]:
             self.skip_diff[0] = True
-        if self.diff_size[1] == self.diff_size[2]:
+        if self.diff_size[1] == self.diff_size[2] and self.playable_notes[1] == self.playable_notes[2]:
             self.skip_diff[1] = True
-        if self.diff_size[2] == self.diff_size[0]:
+        if self.diff_size[2] == self.diff_size[0] and self.playable_notes[2] == self.playable_notes[0]:
             self.skip_diff[2] = True
 
         # if all diffs are the same, only extract the last one
@@ -256,7 +257,7 @@ class OJNExtract():
             if self.skip_diff[diff_idx]:
                 continue
             
-            # get diff hexdata
+            # get current diff hexdata
             diff_start = self.diff_offset[diff_idx]
             diff_end = diff_start + self.diff_size[diff_idx]
             diff_raw = self.hexdata[diff_start:diff_end]
@@ -374,20 +375,25 @@ class OJNExtract():
                                 if lane == ln_notes[idx]["lane"]:
                                     match.append([idx, ln_notes[idx]["measure_start"]])
                             match.sort(key=lambda x: x[1], reverse=True) # higher measure comes first
+                            
+                            flag_paired = False
 
-                            paired = False
-                                
-                            # incase len(match) > 1
-                            for idx in range(len(match)):
-                                # find shortest possible paired ln to avoid stacked notes
-                                if measure_end > match[idx][1]:
-                                    ln_notes[match[idx][0]]["measure_end"] = measure_end
-                                    notes.append(ln_notes[match[idx][0]])
-                                    ln_notes.pop(match[idx][0])
-                                    paired = True
-                                    break
+                            # pairing algorithm (always go for the longest possible ln, and remove all the extra ln heads between them)
+                            # Following examples: H1 = ln head #1, T1 = ln tail #1
+                            # Note: ln head always comes before ln tail in ojn raw data
+                            # e.g. H1 H2 T1 -> (H1 T1), remove H2 because it's invalid ln head (If we pair H2 with T1, then there should be a T0 that comes before T1 to pair with H1, like H1 T0 H2 T1)
+                            # e.g. H1 T1 H2 -> (H1 T1), keep H2 because there might be a T2 coming to pair with H2
+                            if len(match) > 0:
+                                if measure_end > match[-1][1]:
+                                    ln_notes[match[-1][0]]["measure_end"] = measure_end
+                                    notes.append(ln_notes[match[-1][0]])
+                                    for idx in range(len(match)):
+                                        if measure_end > match[idx][1]:
+                                            ln_notes.pop(match[idx][0])
+                                    flag_paired = True
 
-                            if not paired:
+                            # if there's no ln head to pair with, we can consider the ln tail invalid and safely drop it
+                            if not flag_paired:
                                 self.warning_log(f"Failed to pair ln notes! Usually this warning can be ignored.")
                                 if self.debug:
                                     ln_tail_info = {
@@ -518,11 +524,9 @@ class OJNExtract():
             for t_idx in range(len(self.diff_timings[diff_idx])):
                 t: list = self.diff_timings[diff_idx][t_idx] # t = [bpm, measure]
                 ms_per_measure = 60000 / t[0]
-                # ignore abnormal timing points (extremely large bpm)
+                # ignore absurd timing points (extremely large bpm)
                 if ms_per_measure < 0.001:
                     continue
-                    #ms_per_measure = 0.001
-                    #self.error_log(f"Abnormal timing points! TimingPoints = {self.diff_timings[diff_idx]}; bpm = {t[0]}")
                 
                 if t_idx == 0:
                     offset = round(t[1]*ms_previous_bpm)
