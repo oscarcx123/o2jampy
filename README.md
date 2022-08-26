@@ -32,6 +32,11 @@ TODO
 
 ## Updates
 
+### 2022.08.26 - 0.4.0
+
+* [x] Refactor hitsound format detection (o2ma2618)
+* [x] Bug fixes
+
 ### 2022.08.25 - 0.3.0
 
 * [x] Channel 0 support (o2ma2673)

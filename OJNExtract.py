@@ -441,14 +441,13 @@ class OJNExtract():
                         elif note_type != 0:
                             #self.warning_log(f"Unrecognized autoplay sample note_type: {diff_raw[pos+4*i:pos+4*i+4]}, events # = {events}, channel # = {channel}, note_type = {note_type}")
                             continue
-                                                 
-                        # I think sample_value == 1 is a note_type == 0 default filler so we should also ignore it.
-                        # Please let me know if this is not the case
-                        if sample_value == 1:
-                            continue
                         
                         # to match the OJM sample value
                         sample_value += 1
+
+                        # ignore the event if there's no actual hitsound file extracted from OJM to play
+                        if sample_value not in self.ojm.sound_dict:
+                            continue
                         
                         sample_volume = int(diff_raw[pos+4*i+2][0], 16)
                         autoplay_samples.append([sample_value, sample_volume, measure + i / events])
@@ -615,24 +614,18 @@ class OJNExtract():
                         offset = self.diff_timings[diff_idx][t_idx][2] + offset_delta
                         return math.floor(offset)
 
-            # If all hitsounds are the same, they will be removed
-            note_keysound = set()
-            flag_no_keysound = False
-            for n in self.diff_notes[diff_idx]:
-                note_keysound.add(n['sample_value'])
-
-            # if unique hitsound < 5, it's unlikely that the whole map is hitsounded
-            if len(note_keysound) < 5:
-                flag_no_keysound = True
-                if self.debug:
-                    self.info_log(f"No keysound found for [{self.curr_diff}]")
-                    
-            # get audio extension (hitsound and autoplay sounds)
-            ext = self.ojm.ext
             
             # populate all notes in osu format
             for n in self.diff_notes[diff_idx]:
-                hitsound = f"normal-hitnormal{n['sample_value'] + 1}.{ext}"
+                sample_id = n['sample_value'] + 1
+                if sample_id not in self.ojm.sound_dict:
+                    flag_no_keysound = True
+                    ext = None
+                else:
+                    flag_no_keysound = False
+                    ext = self.ojm.sound_dict[sample_id]
+                
+                hitsound = f"normal-hitnormal{sample_id}.{ext}"
                 # rice
                 if n["type"] == 0:
                     offset = get_note_offset(n['measure_start'])
@@ -648,12 +641,17 @@ class OJNExtract():
                     else:
                         osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:100:{hitsound}")
 
+            
             # [Event] Calculate autoplay ogg samples here
             ogg_volumes = [math.floor(x * 100 / 15) for x in range(16)]
             ogg_volumes.sort(reverse=True)
 
             for ogg in self.diff_autoplay_samples[diff_idx]:
-                osu_events.append(f"5,{get_note_offset(ogg[2])},0,\"normal-hitnormal{ogg[0]}.{ext}\",{ogg_volumes[ogg[1]]}")
+                sample_id = ogg[0]
+                sample_volume = ogg[1]
+                measure = ogg[2]
+                ext = self.ojm.sound_dict[sample_id] # already filtered in parse_diff(), so we can safely read from sound_dict
+                osu_events.append(f"5,{get_note_offset(measure)},0,\"normal-hitnormal{sample_id}.{ext}\",{ogg_volumes[sample_volume]}")
 
             sections = [
                 osu_general,
@@ -704,11 +702,11 @@ class OJNExtract():
                 self.info_log(f"Song id = {self.song_id} exists, skip!")
             else:
                 self.info_log(f"Song id = {self.song_id}, parsing...")
-                self.parse_image()
-                self.parse_diff()
                 # create directory if not exist
                 # https://stackoverflow.com/questions/12517451/automatically-creating-directories-with-file-output
                 os.makedirs(os.path.dirname(os.path.join(self.song_path, "cow.osu")), exist_ok=True)
                 self.parse_audio()
+                self.parse_image()
+                self.parse_diff()
                 self.export_osu()
                 self.info_log(f"Song id = {self.song_id}, success!")

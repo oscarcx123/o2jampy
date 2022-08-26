@@ -73,10 +73,9 @@ class OJMExtract():
         self.debug = False
         # This will be passed when dump_file() is called
         self.filename = None
+        # for OJNExtract use {sample_id (int): extension ("wav" or "ogg")}
+        self.sound_dict = {} 
 
-        # This will be detected and will be used by OJNExtract
-        self.ext = ""
-    
     # little-endian (LE), hexdata to hexstring
     def LE(self, hexdata: list[str]) -> str:
         hexdata.reverse()
@@ -161,6 +160,7 @@ class OJMExtract():
 
     def dump_file(self, filename):
         self.filename = filename # useful for debug
+        
         # Compare signature (M30, OMC, OJM)
         ojn_filename = os.path.join(self.input_path, filename)
         with open(ojn_filename, "rb") as f:
@@ -181,7 +181,6 @@ class OJMExtract():
             print("Unknown Signature!")
 
     def parse_M30(self):
-        self.ext = "ogg" # M30 definitely ogg
         # M30_header (28 bytes)
         file_format_version = int(self.LE(self.hexdata[4:8]), 16)
         encryption_flag = int(self.LE(self.hexdata[8:12]), 16)
@@ -196,7 +195,6 @@ class OJMExtract():
         self.acc_keybyte = 0xFF
         self.acc_counter = 0
         
-        # TODO: need to test if this is correct?
         # ogg data section
         for i in range(sample_count):
             # reached the end of the file before the samples_count
@@ -210,10 +208,13 @@ class OJMExtract():
             codec_code = int(self.LE(self.hexdata[pos+36:pos+38]), 16)
             unk_fixed = int(self.LE(self.hexdata[pos+38:pos+40]), 16)
             music_flag = int(self.LE(self.hexdata[pos+40:pos+44]), 16)
-            ref = (int(self.LE(self.hexdata[pos+44:pos+46]), 16) + 2)
+            ref = (int(self.LE(self.hexdata[pos+44:pos+46]), 16))
             unk_zero = int(self.LE(self.hexdata[pos+46:pos+48]), 16)
             pcm_samples = int(self.LE(self.hexdata[pos+48:pos+52]), 16)
             pos += 52
+
+            # to match OJN sample_id
+            ref += 2
 
             # ogg_data
             ogg_data = self.hexdata[pos:pos+sample_size]
@@ -245,6 +246,7 @@ class OJMExtract():
             if len(ogg_bytes) > 0:
                 with open(ogg_filename, "wb") as f:
                     f.write(ogg_bytes)
+                self.sound_dict[ref] = "ogg"
             else:
                 print(f"Failed normal-hitnormal{ref}.ogg")
             
@@ -258,21 +260,10 @@ class OJMExtract():
         filesize = int(self.LE(self.hexdata[16:20]), 16)
 
         pos = 20
-        sample_id = 2 # wav samples use id 0~999
-
-        # Judging from my experience, each ojm only contains one audio format, either wav or ogg
-        # Please let me know if this is incorrect
-        if pos < ogg_start:
-            self.ext = "wav"
-        else:
-            self.ext = "ogg"
-
-        # This variable is used to find any exception for the above rule
-        audio_format_count = 0
+        sample_id = 2 # sample_id starts from 2
         
         # wav data section
         while pos < ogg_start:
-            audio_format_count += 1
             # OMC_WAV_header (sample header, 56 bytes)
             # sample_name = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[pos:pos+32]))).decode(self.enc)
             audio_format = int(self.LE(self.hexdata[pos+32:pos+34]), 16)
@@ -319,15 +310,15 @@ class OJMExtract():
             if len(out_buffer_bytes) > 0:
                 with open(wav_filename, "wb") as f:
                     f.write(out_buffer_bytes)
+                self.sound_dict[sample_id] = "wav"
             else:
                 print(f"Failed normal-hitnormal{sample_id}.wav")
             
             sample_id += 1
 
         # ogg data section
-        sample_id = 1002
+        sample_id = 1002 # starts from 1002
         while pos < filesize:
-            audio_format_count += 1
             # OMC_OGG_header (sample header, 36 bytes)
             # sample_name = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[pos:pos+32]))).decode(self.enc)
             sample_size = int(self.LE(self.hexdata[pos+32:pos+36]), 16)
@@ -347,11 +338,8 @@ class OJMExtract():
             if len(ogg_bytes) > 0:
                 with open(ogg_filename, "wb") as f:
                     f.write(ogg_bytes)
+                self.sound_dict[sample_id] = "ogg"
             else:
                 print(f"Failed normal-hitnormal{sample_id}.ogg")
             
             sample_id += 1
-
-        # Raise Warning if this ojm contains both ogg and wav
-        if audio_format_count == 2:
-            print("[WARNING] This OJM contains both wav and ogg audio files!")
