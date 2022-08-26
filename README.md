@@ -33,12 +33,15 @@ TODO
 ## Updates
 
 Known issue:
-* Autoplay keysound (<1000) not registered in osu's Event (o2ma1082, o2ma106, o2ma392)
 * channel 0 (o2ma2673)
+
 
 ### 2022.08.25 - 0.3.0
 
 * [x] Fixed LN pairing issue (o2ma3021)
+* [x] Fixed autoplay hitsound (<1000) not exported to osu's Event (o2ma1082, o2ma106, o2ma392)
+* [x] Fixed normal-hitnormal2.ogg in event
+* [x] Bug fixes
 
 ### 2022.08.24 - 0.2.0
 

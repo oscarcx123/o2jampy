@@ -260,12 +260,19 @@ class OJMExtract():
         pos = 20
         sample_id = 2 # wav samples use id 0~999
 
-        # reset global variables (TODO: Maybe Remove)
-        acc_keybyte = "FF"
-        acc_counter = 0
+        # Judging from my experience, each ojm only contains one audio format, either wav or ogg
+        # Please let me know if this is incorrect
+        if pos < ogg_start:
+            self.ext = "wav"
+        else:
+            self.ext = "ogg"
 
+        # This variable is used to find any exception for the above rule
+        audio_format_count = 0
+        
         # wav data section
         while pos < ogg_start:
+            audio_format_count += 1
             # OMC_WAV_header (sample header, 56 bytes)
             # sample_name = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[pos:pos+32]))).decode(self.enc)
             audio_format = int(self.LE(self.hexdata[pos+32:pos+34]), 16)
@@ -320,6 +327,7 @@ class OJMExtract():
         # ogg data section
         sample_id = 1002
         while pos < filesize:
+            audio_format_count += 1
             # OMC_OGG_header (sample header, 36 bytes)
             # sample_name = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[pos:pos+32]))).decode(self.enc)
             sample_size = int(self.LE(self.hexdata[pos+32:pos+36]), 16)
@@ -343,3 +351,7 @@ class OJMExtract():
                 print(f"Failed normal-hitnormal{sample_id}.ogg")
             
             sample_id += 1
+
+        # Raise Warning if this ojm contains both ogg and wav
+        if audio_format_count == 2:
+            print("[WARNING] This OJM contains both wav and ogg audio files!")

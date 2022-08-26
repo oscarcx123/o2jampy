@@ -246,7 +246,7 @@ class OJNExtract():
             2: []
         }
 
-        self.diff_ogg_samples = {
+        self.diff_autoplay_samples = {
             0: [],
             1: [],
             2: []
@@ -276,9 +276,9 @@ class OJNExtract():
             # long notes pairing list (temporary, paired ln will then be moved to notes)
             ln_notes = []
 
-            # ogg samples [sample_no, sample_volume, measure]
+            # autoplay samples [sample_no, sample_volume, measure]
             # sample_volume -> 0-15, 0 = maximum
-            ogg_samples = []
+            autoplay_samples = []
 
             # try to get divisor of the song (might not be reliable)
             temp_pos = 0
@@ -321,19 +321,23 @@ class OJNExtract():
                             continue
                         timings.append([new_bpm, measure + i / events])
 
-                # When the channel is 2-8 (notes) these 4 bytes are divided like this.               
+                # When channel > 1, these 4 bytes are divided like this:
                 # short16 sample_value; (2 bytes)
                 # half-char sample_volume; (0.5 byte)
                 # half-char pan; (0.5 byte)
-                # char note_type; (1 byte)  
+                # char note_type; (1 byte)
+
+                # channel is 2-8 (playable notes)
                 elif 2 <= channel <= 8:
                     for i in range(events):
                         # 0 -> ignored; other -> sample in ojm
                         sample_value = int(self.LE(diff_raw[pos+4*i:pos+4*i+2]), 16)
                         if sample_value == 0:
                             continue
+
                         # sample volume (0-15), 0 is maximum
                         sample_volume = int(diff_raw[pos+4*i+2][0], 16)
+                        
                         # 1~7 = left -> center, 0 or 8 = center, 9~15 = center -> right
                         sample_pan = int(diff_raw[pos+4*i+2][1], 16)
                         note_type = int(self.LE([diff_raw[pos+4*i+3]]), 16)
@@ -341,7 +345,7 @@ class OJNExtract():
                         # note_type = 4 -> normal note & use ogg sample
                         if note_type == 4:
                             note_type = 0
-                            sample_value += 1000 # TODO
+                            sample_value += 1000
                         
                         # rice
                         if note_type == 0:
@@ -406,22 +410,39 @@ class OJNExtract():
                                     print(f"match = {match}")
                                     print(f"ln_notes = {ln_notes}")
                 
-                # channel is 9-22
+                # channel is 9-22 (autoplay notes)
+                # As far as I know these are usually 9-15
                 else:
                     for i in range(events):
                         note_type = int(self.LE([diff_raw[pos+4*i+3]]), 16)
 
                         sample_value = int(self.LE(diff_raw[pos+4*i:pos+4*i+2]), 16)
                         
-                        # note_type = 4 -> normal note & use ogg sample
-                        if note_type != 4:
-                            continue                    
+                        # always ignore the event when sample_value is 0
+                        if sample_value == 0:
+                            continue
+
+                        # note_type = 4 -> ogg sample (sample_value > 1000)
+                        # note_type = 0 -> ogg/wav sample (sample_value < 1000)
+                        if note_type == 4:
+                            sample_value += 1000
+                        elif note_type != 0:
+                            #self.warning_log(f"Unrecognized autoplay sample note_type: {diff_raw[pos+4*i:pos+4*i+4]}, events # = {events}, channel # = {channel}, note_type = {note_type}")
+                            continue
+                                                 
+                        # I think sample_value == 1 is a note_type == 0 default filler so we should also ignore it.
+                        # Please let me know if this is not the case
+                        if sample_value == 1:
+                            continue
+                        
+                        # to match the OJM sample value
+                        sample_value += 1
                         
                         sample_volume = int(diff_raw[pos+4*i+2][0], 16)
-                        ogg_samples.append([sample_value, sample_volume, measure + i / events])
+                        autoplay_samples.append([sample_value, sample_volume, measure + i / events])
                         if self.debug:
                             print(f"{diff_raw[pos+4*i:pos+4*i+4]}, channel = {channel}")
-                            print(f"ogg_sample = {[sample_value, sample_volume, measure + i / events]}")
+                            print(f"autoplay_sample = {[sample_value, sample_volume, measure + i / events]}")
 
                 pos += events * 4
             
@@ -431,7 +452,7 @@ class OJNExtract():
             notes.sort(key=lambda x: x["measure_start"])
             self.diff_notes[diff_idx] = notes
             self.diff_timings[diff_idx] = self.validate_timings(timings)
-            self.diff_ogg_samples[diff_idx] = ogg_samples
+            self.diff_autoplay_samples[diff_idx] = autoplay_samples
         
     # generate .osu, .jpg, .mp3
     def export_osu(self):
@@ -566,17 +587,11 @@ class OJNExtract():
                 if self.debug:
                     self.info_log(f"No keysound found for [{self.curr_diff}]")
                     
+            # get audio extension (hitsound and autoplay sounds)
+            ext = self.ojm.ext
+            
             # populate all notes in osu format
             for n in self.diff_notes[diff_idx]:
-                # determine audio extension
-                if self.ojm.ext == "ogg":
-                    ext = "ogg"
-                else:
-                    if n['sample_value'] < 1000:
-                        ext = "wav"
-                    else:
-                        ext = "ogg"
-
                 hitsound = f"normal-hitnormal{n['sample_value'] + 1}.{ext}"
                 # rice
                 if n["type"] == 0:
@@ -594,12 +609,11 @@ class OJNExtract():
                         osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:100:{hitsound}")
 
             # [Event] Calculate autoplay ogg samples here
-            ogg_volumes = [math.floor(x * 100 / 15) for x in range(15)]
+            ogg_volumes = [math.floor(x * 100 / 15) for x in range(16)]
             ogg_volumes.sort(reverse=True)
 
-            for ogg in self.diff_ogg_samples[diff_idx]:
-                sample_id = int("1" + str(ogg[0]).zfill(3)) + 1
-                osu_events.append(f"5,{get_note_offset(ogg[2])},0,\"normal-hitnormal{sample_id}.ogg\",{ogg_volumes[ogg[1]]}")
+            for ogg in self.diff_autoplay_samples[diff_idx]:
+                osu_events.append(f"5,{get_note_offset(ogg[2])},0,\"normal-hitnormal{ogg[0]}.{ext}\",{ogg_volumes[ogg[1]]}")
 
             sections = [
                 osu_general,
