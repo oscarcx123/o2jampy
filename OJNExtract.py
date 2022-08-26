@@ -311,7 +311,7 @@ class OJNExtract():
                 # When the channel is 0 (fractional measure), the 4 bytes are a float, indicating how much of the measure is actually used, so if the value is 0.75, the size of this measure will be only 75% of a normal measure.
                 if channel == 0:
                     frac_measure = self.SingleFloat(self.LE(diff_raw[pos:pos+4]))
-                    self.error_log("channel == 0, not implemented!")
+                    self.error_log(f"channel == 0, not implemented! frac = {frac_measure}, measure = {measure}")
 
                 # When the channel is 1 (BPM change) these 4 bytes are a float with the new BPM.
                 elif channel == 1:
@@ -547,6 +547,7 @@ class OJNExtract():
                 ms_per_measure = 60000 / t[0]
                 # ignore absurd timing points (extremely large bpm)
                 if ms_per_measure < 0.001:
+                    t.append(0)
                     continue
                 
                 if t_idx == 0:
@@ -569,7 +570,7 @@ class OJNExtract():
             def get_note_offset(measure_val):
                 offset = 0
                 for t_idx in range(len(self.diff_timings[diff_idx])):
-                    if measure_val > self.diff_timings[diff_idx][t_idx][1]:
+                    if measure_val >= self.diff_timings[diff_idx][t_idx][1]:
                         measure_delta = measure_val - self.diff_timings[diff_idx][t_idx][1]
                         offset_delta = measure_delta * (60000 / self.diff_timings[diff_idx][t_idx][0] * self.divisor)
                         offset = self.diff_timings[diff_idx][t_idx][2] + offset_delta
