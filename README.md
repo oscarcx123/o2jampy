@@ -10,7 +10,7 @@ A next generation o2jam to osu!mania converter
 | Beatmap Accuracy    | Excellent             | Good            | Meh          |
 | Codecs Support      | All codecs            | gb18030, euc-kr | utf-8        |
 | Wav Extraction      | Yes                   | Yes             | Doesn't Work |
-| Channel 0 Support   | Yes                   | Yes             | No           |
+| Channel 0 Support   | Yes                   | No              | No           |
 | Batch Conversion    | Yes                   | No              | Yes          |
 | OGG to MP3          | Yes                   | No              | No           |
 | Remove all SV       | Yes (Optional)        | No              | No           |
@@ -32,12 +32,9 @@ TODO
 
 ## Updates
 
-Known issue:
-* channel 0 (o2ma2673)
-
-
 ### 2022.08.25 - 0.3.0
 
+* [x] Channel 0 support (o2ma2673)
 * [x] Fixed LN pairing issue (o2ma3021)
 * [x] Fixed autoplay hitsound (<1000) not exported to osu's Event (o2ma1082, o2ma106, o2ma392)
 * [x] Fixed normal-hitnormal2.ogg in event

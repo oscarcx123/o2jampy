@@ -17,7 +17,7 @@ class OJNExtract():
         big5 - Traditional Chinese
         euc_kr - Korean
         '''
-        self.enc = "gb18030"
+        self.enc = "euc_kr"
 
     # Just an example
     # More info: https://open2jam.wordpress.com/the-ojn-documentation/
@@ -79,12 +79,12 @@ class OJNExtract():
             filename = filename.replace(c, "")
         return filename
 
-    # remove duplicate timings (keep larger bpm)
+    # remove duplicate timings
     # e.g. [[129.0, 0], [141.9, 0.0], [141.9, 0.015625]] -> [[141.9, 0.0], [141.9, 0.015625]]
-    def validate_timings(self, timings):
-        clean_timings_rev_dict = dict([[float(t[1]), t[0]] for t in timings])
-        clean_timings_rev = [list(t) for t in clean_timings_rev_dict.items()]
-        return [[t[1], float(t[0])] for t in clean_timings_rev]
+    def clean_timings(self, timings):
+        clean_timings_flip_dict = dict([[float(t[1]), t[0]] for t in timings])
+        clean_timings_flip = [list(t) for t in clean_timings_flip_dict.items()]
+        return [[t[1], float(t[0])] for t in clean_timings_flip]
 
     # little-endian (LE), hexdata to hexstring
     def LE(self, hexdata: list[str]) -> str:
@@ -246,6 +246,13 @@ class OJNExtract():
             2: []
         }
 
+        # This is for channel == 0
+        self.diff_frac_measure = {
+            0: [],
+            1: [],
+            2: []
+        }
+
         self.diff_autoplay_samples = {
             0: [],
             1: [],
@@ -280,6 +287,9 @@ class OJNExtract():
             # sample_volume -> 0-15, 0 = maximum
             autoplay_samples = []
 
+            # channel 0 fraction measure [measure, frac]
+            frac_measure = []
+
             # try to get divisor of the song (might not be reliable)
             temp_pos = 0
             for package_idx in range(self.package_count[diff_idx]):
@@ -309,9 +319,11 @@ class OJNExtract():
                 
 
                 # When the channel is 0 (fractional measure), the 4 bytes are a float, indicating how much of the measure is actually used, so if the value is 0.75, the size of this measure will be only 75% of a normal measure.
+                # Looks like note's measure_start will not exceed frac_measure (e.g. frac_measure = 0.5, note measure = .125, .25, .375, .4375)
                 if channel == 0:
-                    frac_measure = self.SingleFloat(self.LE(diff_raw[pos:pos+4]))
-                    self.error_log(f"channel == 0, not implemented! frac = {frac_measure}, measure = {measure}")
+                    frac = self.SingleFloat(self.LE(diff_raw[pos:pos+4]))
+                    frac_measure.append([measure, frac])
+                    #self.error_log(f"channel == 0, not implemented! frac = {frac_measure}, measure = {measure}")
 
                 # When the channel is 1 (BPM change) these 4 bytes are a float with the new BPM.
                 elif channel == 1:
@@ -451,8 +463,23 @@ class OJNExtract():
             
             notes.sort(key=lambda x: x["measure_start"])
             self.diff_notes[diff_idx] = notes
-            self.diff_timings[diff_idx] = self.validate_timings(timings)
+            self.diff_frac_measure[diff_idx] = frac_measure
+            
+            # insert timing point with same bpm right after the fractional measure
+            timings = self.clean_timings(timings)
+            for f_idx in range(len(frac_measure)):
+                for t_idx in range(len(timings)):
+                    target_measure = frac_measure[f_idx][0] + 1
+                    if timings[t_idx][1] == target_measure:
+                        break
+                    elif timings[t_idx][1] > target_measure:
+                        timings.append([timings[t_idx-1][0], target_measure])
+                        break
+            
+            timings.sort(key=lambda x: x[1])
+            self.diff_timings[diff_idx] = timings
             self.diff_autoplay_samples[diff_idx] = autoplay_samples
+            
         
     # generate .osu, .jpg, .mp3
     def export_osu(self):
@@ -538,28 +565,40 @@ class OJNExtract():
                 "//Storyboard Sound Samples"
             ]
 
+            # Calculate timing points (convert o2jam measure to osu offset)
             osu_timing_points = ["[TimingPoints]"]
+
 
             ms_previous_bpm = 60000 / self.bpm * self.divisor
             
             for t_idx in range(len(self.diff_timings[diff_idx])):
                 t: list = self.diff_timings[diff_idx][t_idx] # t = [bpm, measure]
-                ms_per_measure = 60000 / t[0]
-                # ignore absurd timing points (extremely large bpm)
-                if ms_per_measure < 0.001:
-                    t.append(0)
-                    continue
+                current_bpm = t[0]
+                current_measure = t[1]
+                
+                ms_per_measure = 60000 / current_bpm
+
+                if ms_per_measure < 1:
+                    ms_per_measure = 1
+                    current_bpm = 60000
+                
+                frac_delta = 0
                 
                 if t_idx == 0:
-                    offset = round(t[1]*ms_previous_bpm)
+                    offset = round(current_measure * ms_previous_bpm) # this starting offset should be 0 most of the time
                     osu_timing_points.append(f"{offset},{ms_per_measure},4,2,2,10,1,0")
                 else:
-                    offset = round(previous_offset + ms_previous_bpm * (t[1] - previous_measure))
+                    # calculate fractional measure
+                    for f_idx in range(len(self.diff_frac_measure[diff_idx])):
+                        critical_measure = sum(self.diff_frac_measure[diff_idx][f_idx])
+                        if previous_measure <= critical_measure < current_measure:
+                            frac_delta += 1 - self.diff_frac_measure[diff_idx][f_idx][1]
+                    offset = round(previous_offset + ms_previous_bpm * (current_measure - previous_measure - frac_delta))
                     osu_timing_points.append(f"{offset},{ms_per_measure},4,2,2,10,1,0")
                 t.append(offset) # t = [bpm, measure, offset]
-                ms_previous_bpm = 60000 / t[0] * self.divisor
+                ms_previous_bpm = 60000 / current_bpm * self.divisor
                 previous_offset = offset
-                previous_measure = t[1]
+                previous_measure = current_measure
             
             osu_hitobjects = ["[HitObjects]"]
 
