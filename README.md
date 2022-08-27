@@ -38,6 +38,8 @@ TODO
 ## Development Roadmap
 
 * Auto convert ogg -> mp3
+    * Done: autoplay events == 1 (which is like 90% of all the o2jam charts)
+    * Need to implement a solution for autoplay events > 1
 * Option to remove all bpm change
 * Option to add green line multiplier (keep bpm change but remove sv effect)
 * Option to remove stacked notes / hidden notes under LN (o2ma3021)
@@ -46,9 +48,16 @@ TODO
 
 ## Updates
 
+Known issue:
+* Auto convert ogg -> mp3 will leave some red lines (timing points) before 0ms in osu. Doesn't break the game but it's better to fix it.
+
 ### 2022.08.26 - 0.4.0
 
 * [x] Refactor hitsound format detection (o2ma2618)
+* [x] Auto convert ogg -> mp3
+    * Not fully implemented
+    * Will convert when there's only 1 autoplay event (which is most of the cases)
+* [x] Ability to shift everything (notes, events, timing points) by a specific offset
 * [x] Bug fixes
 
 ### 2022.08.25 - 0.3.0

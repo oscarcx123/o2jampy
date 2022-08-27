@@ -1,6 +1,8 @@
 import os
 import math
+import copy
 import struct
+import audio_lib
 from OJMExtract import OJMExtract
 
 class OJNExtract():
@@ -18,6 +20,8 @@ class OJNExtract():
         euc_kr - Korean
         '''
         self.enc = "euc_kr"
+        self.flag_use_mp3 = True
+        self.extra_offset = -50
 
     # Just an example
     # More info: https://open2jam.wordpress.com/the-ojn-documentation/
@@ -488,13 +492,19 @@ class OJNExtract():
             [5, 7],
             [2, 5]
         ]
+
+        converted_audio = []
+        used_mp3_name = []
+        audio_filename = "virtual"
+        preview_time = "1234"
+        
         for diff_idx in range(len(self.diff_size)):
             # skip if duplicate
             if self.skip_diff[diff_idx]:
                 continue
             
             self.curr_diff = f"lvl {self.lvl[diff_idx]}"
-            
+
             # Dynamic hp & od
             if self.lvl[diff_idx] < 70:
                 odhp = odhp_scale[0]
@@ -503,13 +513,110 @@ class OJNExtract():
             else:
                 odhp = odhp_scale[2]
             
+            
+            # Calculate timing points (convert o2jam measure to osu offset)
+            ms_previous_bpm = 60000 / self.bpm * self.divisor
+            
+            for t_idx in range(len(self.diff_timings[diff_idx])):
+                t: list = self.diff_timings[diff_idx][t_idx] # t = [bpm, measure]
+                current_bpm = t[0]
+                current_measure = t[1]
+                
+                ms_per_measure = 60000 / current_bpm
+
+                if ms_per_measure < 1:
+                    ms_per_measure = 1
+                    current_bpm = 60000
+                
+                frac_delta = 0
+                
+                if t_idx == 0:
+                    offset = round(current_measure * ms_previous_bpm) # this starting offset should be 0 most of the time
+                else:
+                    # calculate fractional measure
+                    for f_idx in range(len(self.diff_frac_measure[diff_idx])):
+                        critical_measure = sum(self.diff_frac_measure[diff_idx][f_idx])
+                        if previous_measure <= critical_measure < current_measure:
+                            frac_delta += 1 - self.diff_frac_measure[diff_idx][f_idx][1]
+                    offset = round(previous_offset + ms_previous_bpm * (current_measure - previous_measure - frac_delta))
+                t.extend([offset, ms_per_measure]) # t = [bpm, measure, offset, ms_per_measure]
+                ms_previous_bpm = 60000 / current_bpm * self.divisor
+                previous_offset = offset
+                previous_measure = current_measure
+
+            curr_diff_timings = copy.deepcopy(self.diff_timings[diff_idx])
+
+            curr_diff_timings.sort(key=lambda x: x[1], reverse=True) # sort by measure (reverse order)
+            
+            def get_note_offset(measure_val):
+                offset = 0
+                for t_idx in range(len(curr_diff_timings)):
+                    if measure_val >= curr_diff_timings[t_idx][1]:
+                        measure_delta = measure_val - curr_diff_timings[t_idx][1]
+                        offset_delta = measure_delta * (60000 / curr_diff_timings[t_idx][0] * self.divisor)
+                        offset = curr_diff_timings[t_idx][2] + offset_delta
+                        return math.floor(offset)
+
+
+            # [Event] Calculate autoplay ogg samples offset here
+            ogg_volumes = [math.floor(x * 100 / 15) for x in range(16)]
+            ogg_volumes.sort(reverse=True)
+
+            for ogg in self.diff_autoplay_samples[diff_idx]:
+                # ogg = [sample_id, sample_volume, measure]
+                sample_id = ogg[0]
+                measure = ogg[2]
+                ext = self.ojm.sound_dict[sample_id] # already filtered in parse_diff(), so we can safely read from sound_dict
+                ogg.extend([get_note_offset(measure), ext]) # ogg = [sample_id, sample_volume, measure, offset, ext]
+            
+            
+            mp3_offset = 0 # If flag_use_mp3 == True, this will be a negative number
+            
+            # TODO: merge multiple autoplay samples into one mp3
+            # For now only convert mp3 when sample count == 1
+            if self.flag_use_mp3 and len(self.diff_autoplay_samples[diff_idx]) == 1:
+                # Get the first autoplay event offset
+                for ogg in self.diff_autoplay_samples[diff_idx]:
+                    # ogg = [sample_id, sample_volume, measure, offset, ext]
+                    mp3_offset = -ogg[3]
+                    mp3_offset += self.extra_offset
+                    break
+
+                # Shift curr_diff_timings by mp3_offset
+                for t in curr_diff_timings:
+                    t[2] += mp3_offset
+                for t in self.diff_timings[diff_idx]:
+                    t[2] += mp3_offset
+
+                # Shift all events by mp3_offset
+                for ogg in self.diff_autoplay_samples[diff_idx]:
+                    ogg[3] += mp3_offset
+
+                # Create MP3
+                # only 1 autoplay event
+                if len(self.diff_autoplay_samples[diff_idx]) == 1:
+                    sample_id = self.diff_autoplay_samples[diff_idx][0][0]
+                    ext = self.diff_autoplay_samples[diff_idx][0][4]
+                    sound_filename = f"normal-hitnormal{sample_id}.{ext}"
+                    if sound_filename not in converted_audio:
+                        output_filename = f"audio_{self.song_id}.mp3"
+                        if output_filename in used_mp3_name:
+                            output_filename = f"audio_{self.song_id}_{self.diff_scale[diff_idx]}.mp3"
+                        audio_filename = output_filename
+                        audio_lib.to_mp3(self.song_path, sound_filename, output_filename)
+                        # always preview at 1/4 duration of the song
+                        preview_time = math.floor(audio_lib.get_audio_length(self.song_path, audio_filename) * 1000 / 4)
+                        converted_audio.append(sound_filename)
+                        used_mp3_name.append(output_filename)
+
+
             osu_file = "osu file format v14\n\n"
             
             osu_general = [
                 "[General]",
-                "AudioFilename: virtual",
+                f"AudioFilename: {audio_filename}",
                 "AudioLeadIn: 0",
-                "PreviewTime: 1234",
+                f"PreviewTime: {preview_time}",
                 "Countdown: 0",
                 "SampleSet: Soft",
                 "StackLeniency: 0.7",
@@ -564,58 +671,26 @@ class OJNExtract():
                 "//Storyboard Sound Samples"
             ]
 
-            # Calculate timing points (convert o2jam measure to osu offset)
+            if not self.flag_use_mp3:
+                for ogg in self.diff_autoplay_samples[diff_idx]:
+                    sample_id = ogg[0]
+                    sample_volume = ogg[1]
+                    offset = ogg[3]
+                    ext = ogg[4]
+                    osu_events.append(f"5,{offset},0,\"normal-hitnormal{sample_id}.{ext}\",{ogg_volumes[sample_volume]}")
+
             osu_timing_points = ["[TimingPoints]"]
 
-
-            ms_previous_bpm = 60000 / self.bpm * self.divisor
-            
             for t_idx in range(len(self.diff_timings[diff_idx])):
-                t: list = self.diff_timings[diff_idx][t_idx] # t = [bpm, measure]
-                current_bpm = t[0]
-                current_measure = t[1]
-                
-                ms_per_measure = 60000 / current_bpm
-
-                if ms_per_measure < 1:
-                    ms_per_measure = 1
-                    current_bpm = 60000
-                
-                frac_delta = 0
-                
-                if t_idx == 0:
-                    offset = round(current_measure * ms_previous_bpm) # this starting offset should be 0 most of the time
-                    osu_timing_points.append(f"{offset},{ms_per_measure},4,2,2,10,1,0")
-                else:
-                    # calculate fractional measure
-                    for f_idx in range(len(self.diff_frac_measure[diff_idx])):
-                        critical_measure = sum(self.diff_frac_measure[diff_idx][f_idx])
-                        if previous_measure <= critical_measure < current_measure:
-                            frac_delta += 1 - self.diff_frac_measure[diff_idx][f_idx][1]
-                    offset = round(previous_offset + ms_previous_bpm * (current_measure - previous_measure - frac_delta))
-                    osu_timing_points.append(f"{offset},{ms_per_measure},4,2,2,10,1,0")
-                t.append(offset) # t = [bpm, measure, offset]
-                ms_previous_bpm = 60000 / current_bpm * self.divisor
-                previous_offset = offset
-                previous_measure = current_measure
-            
+                t: list = self.diff_timings[diff_idx][t_idx]
+                offset = t[2]
+                ms_per_measure = t[3]
+                osu_timing_points.append(f"{offset},{ms_per_measure},4,2,2,10,1,0")
+           
             osu_hitobjects = ["[HitObjects]"]
-
-            osu_col_coord = [math.floor((512 / 7) * (i + 0.5)) for i in range(7)]
-
-            self.diff_timings[diff_idx].sort(key=lambda x: x[1], reverse=True)
-            
-            def get_note_offset(measure_val):
-                offset = 0
-                for t_idx in range(len(self.diff_timings[diff_idx])):
-                    if measure_val >= self.diff_timings[diff_idx][t_idx][1]:
-                        measure_delta = measure_val - self.diff_timings[diff_idx][t_idx][1]
-                        offset_delta = measure_delta * (60000 / self.diff_timings[diff_idx][t_idx][0] * self.divisor)
-                        offset = self.diff_timings[diff_idx][t_idx][2] + offset_delta
-                        return math.floor(offset)
-
             
             # populate all notes in osu format
+            osu_col_coord = [math.floor((512 / 7) * (i + 0.5)) for i in range(7)]
             for n in self.diff_notes[diff_idx]:
                 sample_id = n['sample_value'] + 1
                 if sample_id not in self.ojm.sound_dict:
@@ -641,17 +716,6 @@ class OJNExtract():
                     else:
                         osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:100:{hitsound}")
 
-            
-            # [Event] Calculate autoplay ogg samples here
-            ogg_volumes = [math.floor(x * 100 / 15) for x in range(16)]
-            ogg_volumes.sort(reverse=True)
-
-            for ogg in self.diff_autoplay_samples[diff_idx]:
-                sample_id = ogg[0]
-                sample_volume = ogg[1]
-                measure = ogg[2]
-                ext = self.ojm.sound_dict[sample_id] # already filtered in parse_diff(), so we can safely read from sound_dict
-                osu_events.append(f"5,{get_note_offset(measure)},0,\"normal-hitnormal{sample_id}.{ext}\",{ogg_volumes[sample_volume]}")
 
             sections = [
                 osu_general,
