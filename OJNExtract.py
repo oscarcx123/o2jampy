@@ -671,7 +671,9 @@ class OJNExtract():
                 "//Storyboard Sound Samples"
             ]
 
-            if not self.flag_use_mp3:
+            if self.flag_use_mp3 and len(self.diff_autoplay_samples[diff_idx]) == 1:
+                pass
+            else:
                 for ogg in self.diff_autoplay_samples[diff_idx]:
                     sample_id = ogg[0]
                     sample_volume = ogg[1]
