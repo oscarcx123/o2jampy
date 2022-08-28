@@ -26,7 +26,9 @@ def to_mp3(folder_path: str, sound_filename: str, output_filename: str):
     # TODO: Delete source audio file
     os.remove(sound_file)
 
-# get audio length in second (float)
-def get_audio_length(folder_path: str, sound_filename: str):
+# get audio length in ms
+def get_audio_length(folder_path: str, sound_filename: str) -> int:
+    sound_ext = sound_filename.split(".")[-1]
     sound_file = os.path.join(folder_path, sound_filename)
-    return float(mediainfo(sound_file)['duration'])
+    sound = AudioSegment.from_file((sound_file), format=sound_ext)
+    return len(sound)

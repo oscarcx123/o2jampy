@@ -48,8 +48,10 @@ TODO
 
 ## Updates
 
-Known issue:
-* Auto convert ogg -> mp3 will leave some red lines (timing points) before 0ms in osu. Doesn't break the game but it's better to fix it.
+### 2022.08.27 - 0.5.0
+
+* [x] Fixed mp3 timing points issue (red line before 0ms)
+* [x] Bug fixes
 
 ### 2022.08.26 - 0.4.0
 

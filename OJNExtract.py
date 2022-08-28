@@ -504,6 +504,7 @@ class OJNExtract():
                 continue
             
             self.curr_diff = f"lvl {self.lvl[diff_idx]}"
+            curr_mp3_remix_list = [] # [time (ms), audio_filename]
 
             # Dynamic hp & od
             if self.lvl[diff_idx] < 70:
@@ -572,9 +573,9 @@ class OJNExtract():
             
             mp3_offset = 0 # If flag_use_mp3 == True, this will be a negative number
             
-            # TODO: merge multiple autoplay samples into one mp3
-            # For now only convert mp3 when sample count == 1
-            if self.flag_use_mp3 and len(self.diff_autoplay_samples[diff_idx]) == 1:
+
+            # if convert mp3, need to shift the whole chart because autoplay event doesn't start at 0ms
+            if self.flag_use_mp3:
                 # Get the first autoplay event offset
                 for ogg in self.diff_autoplay_samples[diff_idx]:
                     # ogg = [sample_id, sample_volume, measure, offset, ext]
@@ -591,40 +592,11 @@ class OJNExtract():
                 # Shift all events by mp3_offset
                 for ogg in self.diff_autoplay_samples[diff_idx]:
                     ogg[3] += mp3_offset
-
-                # Create MP3
-                # only 1 autoplay event
-                if len(self.diff_autoplay_samples[diff_idx]) == 1:
-                    sample_id = self.diff_autoplay_samples[diff_idx][0][0]
-                    ext = self.diff_autoplay_samples[diff_idx][0][4]
-                    sound_filename = f"normal-hitnormal{sample_id}.{ext}"
-                    if sound_filename not in converted_audio:
-                        output_filename = f"audio_{self.song_id}.mp3"
-                        if output_filename in used_mp3_name:
-                            output_filename = f"audio_{self.song_id}_{self.diff_scale[diff_idx]}.mp3"
-                        audio_filename = output_filename
-                        audio_lib.to_mp3(self.song_path, sound_filename, output_filename)
-                        # always preview at 1/4 duration of the song
-                        preview_time = math.floor(audio_lib.get_audio_length(self.song_path, audio_filename) * 1000 / 4)
-                        converted_audio.append(sound_filename)
-                        used_mp3_name.append(output_filename)
+                    # minus self.extra_offset here because extra offset should only apply to chart, not the song
+                    curr_mp3_remix_list.append([ogg[3] - self.extra_offset, f"normal-hitnormal{ogg[0]}.{ogg[4]}"])
 
 
             osu_file = "osu file format v14\n\n"
-            
-            osu_general = [
-                "[General]",
-                f"AudioFilename: {audio_filename}",
-                "AudioLeadIn: 0",
-                f"PreviewTime: {preview_time}",
-                "Countdown: 0",
-                "SampleSet: Soft",
-                "StackLeniency: 0.7",
-                "Mode: 3",
-                "LetterboxInBreaks: 0",
-                "SpecialStyle: 0",
-                "WidescreenStoryboard: 1"
-            ]
 
             osu_editor = [
                 "[Editor]",
@@ -671,7 +643,7 @@ class OJNExtract():
                 "//Storyboard Sound Samples"
             ]
 
-            if self.flag_use_mp3 and len(self.diff_autoplay_samples[diff_idx]) == 1:
+            if self.flag_use_mp3:
                 pass
             else:
                 for ogg in self.diff_autoplay_samples[diff_idx]:
@@ -683,8 +655,39 @@ class OJNExtract():
 
             osu_timing_points = ["[TimingPoints]"]
 
+            # find correct starting offset when using mp3
+            if self.flag_use_mp3:
+                first_note_measure = self.diff_notes[diff_idx][0]['measure_start']
+                timing_measure_lst = [t[1] for t in self.diff_timings[diff_idx]]
+                new_start_measure = float(math.floor(first_note_measure))
+                try:
+                    index = timing_measure_lst.index(new_start_measure)
+                except ValueError: # if not found
+                    index = -1
+                
+                timing_remove = []
+                
+                if index >= 0:
+                    timing_remove = list(reversed(range(index)))
+                    for i in timing_remove:
+                        self.diff_timings[diff_idx].pop(i)
+                else:
+                    for m_idx in range(len(timing_measure_lst)):
+                        if timing_measure_lst[m_idx] > new_start_measure:
+                            timing_remove = list(reversed(range(m_idx)))
+                            bpm = self.diff_timings[diff_idx][m_idx - 1][0]
+                            offset = get_note_offset(new_start_measure)
+                            ms_per_measure = self.diff_timings[diff_idx][m_idx - 1][3]
+
+                            for i in timing_remove:
+                                self.diff_timings[diff_idx].pop(i)
+                            
+                            self.diff_timings[diff_idx].insert(0, [bpm, new_start_measure, offset, ms_per_measure])
+                            break
+
+
             for t_idx in range(len(self.diff_timings[diff_idx])):
-                t: list = self.diff_timings[diff_idx][t_idx]
+                t: list = self.diff_timings[diff_idx][t_idx] # t = [bpm, measure, offset, ms_per_measure]
                 offset = t[2]
                 ms_per_measure = t[3]
                 osu_timing_points.append(f"{offset},{ms_per_measure},4,2,2,10,1,0")
@@ -695,6 +698,8 @@ class OJNExtract():
             osu_col_coord = [math.floor((512 / 7) * (i + 0.5)) for i in range(7)]
             for n in self.diff_notes[diff_idx]:
                 sample_id = n['sample_value'] + 1
+                offset = get_note_offset(n['measure_start'])
+
                 if sample_id not in self.ojm.sound_dict:
                     flag_no_keysound = True
                     ext = None
@@ -702,23 +707,59 @@ class OJNExtract():
                     flag_no_keysound = False
                     ext = self.ojm.sound_dict[sample_id]
                 
+                
                 hitsound = f"normal-hitnormal{sample_id}.{ext}"
-                # rice
+
+                if self.flag_use_mp3 and not flag_no_keysound:
+                    # minus self.extra_offset here because extra offset should only apply to chart, not the song
+                    curr_mp3_remix_list.append([offset - self.extra_offset, hitsound])
+                
                 if n["type"] == 0:
-                    offset = get_note_offset(n['measure_start'])
-                    if flag_no_keysound:
-                        osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset},1,0,0:0:0:0:")
-                    else:
-                        osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset},1,0,0:0:0:100:{hitsound}")
-                else:
-                    offset_start = get_note_offset(n['measure_start'])
+                    res_str = f"1,0,0:0:0"
+                else: # ln needs offset_end
                     offset_end = get_note_offset(n['measure_end'])
-                    if flag_no_keysound:
-                        osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:0:")
-                    else:
-                        osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset_start},128,0,{offset_end}:0:0:0:100:{hitsound}")
+                    res_str = f"128,0,{offset_end}:0:0:0"
+                
+
+                if flag_no_keysound or self.flag_use_mp3:
+                    osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset},{res_str}:0:")
+                else:
+                    osu_hitobjects.append(f"{osu_col_coord[n['lane']]},0,{offset},{res_str}:100:{hitsound}")
 
 
+            # Create MP3
+            # only 1 autoplay event
+            if self.flag_use_mp3:
+                if len(curr_mp3_remix_list) == 1:
+                    sound_filename = curr_mp3_remix_list[0][1]
+                    if sound_filename not in converted_audio:
+                        output_filename = f"audio_{self.song_id}.mp3"
+                        if output_filename in used_mp3_name:
+                            output_filename = f"audio_{self.song_id}_{self.diff_scale[diff_idx]}.mp3"
+                        audio_filename = output_filename # used by osu_general
+                        audio_lib.to_mp3(self.song_path, sound_filename, output_filename)
+                        # always preview at 1/4 duration of the song
+                        preview_time = math.floor(audio_lib.get_audio_length(self.song_path, audio_filename) / 4) # used by osu_general
+                        converted_audio.append(sound_filename)
+                        used_mp3_name.append(output_filename)
+                else:
+                    pass
+            
+            
+            osu_general = [
+                "[General]",
+                f"AudioFilename: {audio_filename}",
+                "AudioLeadIn: 0",
+                f"PreviewTime: {preview_time}",
+                "Countdown: 0",
+                "SampleSet: Soft",
+                "StackLeniency: 0.7",
+                "Mode: 3",
+                "LetterboxInBreaks: 0",
+                "SpecialStyle: 0",
+                "WidescreenStoryboard: 1"
+            ]
+            
             sections = [
                 osu_general,
                 osu_editor,
@@ -747,6 +788,7 @@ class OJNExtract():
                 f.write(self.image_raw)
         else:
             self.info_log(f"Song id = {self.song_id}, no image found")
+
 
     # use OJMExtract to extract audio files
     def parse_audio(self):
