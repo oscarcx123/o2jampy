@@ -51,6 +51,7 @@ TODO
 ### 2022.08.27 - 0.5.0
 
 * [x] Fixed mp3 timing points issue (red line before 0ms)
+* [x] Ability to remove all SV (NSV flag)
 * [x] Bug fixes
 
 ### 2022.08.26 - 0.4.0

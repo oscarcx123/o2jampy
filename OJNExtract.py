@@ -21,6 +21,7 @@ class OJNExtract():
         '''
         self.enc = "euc_kr"
         self.flag_use_mp3 = True
+        self.flag_nsv = True
         self.extra_offset = -50
 
     # Just an example
@@ -691,6 +692,8 @@ class OJNExtract():
                 offset = t[2]
                 ms_per_measure = t[3]
                 osu_timing_points.append(f"{offset},{ms_per_measure},4,2,2,10,1,0")
+                if self.flag_nsv:
+                    break
            
             osu_hitobjects = ["[HitObjects]"]
             
