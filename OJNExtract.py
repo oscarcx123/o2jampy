@@ -494,8 +494,7 @@ class OJNExtract():
             [2, 5]
         ]
 
-        converted_audio = []
-        used_mp3_name = []
+        mp3_dict = {} # {duration: output_filename}
         audio_filename = "virtual"
         preview_time = "1234"
         
@@ -581,7 +580,10 @@ class OJNExtract():
                 for ogg in self.diff_autoplay_samples[diff_idx]:
                     # ogg = [sample_id, sample_volume, measure, offset, ext]
                     mp3_offset = -ogg[3]
-                    mp3_offset += self.extra_offset
+
+                    # prevent negative ms notes
+                    if ogg[2] < self.diff_notes[diff_idx][0]['measure_start']:
+                        mp3_offset += self.extra_offset
                     break
 
                 # Shift curr_diff_timings by mp3_offset
@@ -673,18 +675,22 @@ class OJNExtract():
                     for i in timing_remove:
                         self.diff_timings[diff_idx].pop(i)
                 else:
-                    for m_idx in range(len(timing_measure_lst)):
-                        if timing_measure_lst[m_idx] > new_start_measure:
-                            timing_remove = list(reversed(range(m_idx)))
-                            bpm = self.diff_timings[diff_idx][m_idx - 1][0]
-                            offset = get_note_offset(new_start_measure)
-                            ms_per_measure = self.diff_timings[diff_idx][m_idx - 1][3]
+                    if len(timing_measure_lst) == 1:
+                        self.diff_timings[diff_idx][0][1] = new_start_measure
+                        self.diff_timings[diff_idx][0][2] = get_note_offset(new_start_measure)
+                    else:
+                        for m_idx in range(len(timing_measure_lst)):
+                            if timing_measure_lst[m_idx] > new_start_measure:
+                                timing_remove = list(reversed(range(m_idx)))
+                                bpm = self.diff_timings[diff_idx][m_idx - 1][0]
+                                offset = get_note_offset(new_start_measure)
+                                ms_per_measure = self.diff_timings[diff_idx][m_idx - 1][3]
 
-                            for i in timing_remove:
-                                self.diff_timings[diff_idx].pop(i)
-                            
-                            self.diff_timings[diff_idx].insert(0, [bpm, new_start_measure, offset, ms_per_measure])
-                            break
+                                for i in timing_remove:
+                                    self.diff_timings[diff_idx].pop(i)
+                                
+                                self.diff_timings[diff_idx].insert(0, [bpm, new_start_measure, offset, ms_per_measure])
+                                break
 
 
             for t_idx in range(len(self.diff_timings[diff_idx])):
@@ -731,22 +737,23 @@ class OJNExtract():
 
 
             # Create MP3
-            # only 1 autoplay event
             if self.flag_use_mp3:
-                if len(curr_mp3_remix_list) == 1:
-                    sound_filename = curr_mp3_remix_list[0][1]
-                    if sound_filename not in converted_audio:
-                        output_filename = f"audio_{self.song_id}.mp3"
-                        if output_filename in used_mp3_name:
-                            output_filename = f"audio_{self.song_id}_{self.diff_scale[diff_idx]}.mp3"
-                        audio_filename = output_filename # used by osu_general
+                if self.duration[diff_idx] not in mp3_dict:
+                    output_filename = f"audio_{self.song_id}.mp3"
+                    if len(mp3_dict) > 0:
+                        output_filename = f"audio_{self.song_id}_{self.diff_scale[diff_idx]}.mp3"
+                    
+                    if len(curr_mp3_remix_list) == 1:
+                        sound_filename = curr_mp3_remix_list[0][1]
                         audio_lib.to_mp3(self.song_path, sound_filename, output_filename)
-                        # always preview at 1/4 duration of the song
-                        preview_time = math.floor(audio_lib.get_audio_length(self.song_path, audio_filename) / 4) # used by osu_general
-                        converted_audio.append(sound_filename)
-                        used_mp3_name.append(output_filename)
-                else:
-                    pass
+                    elif len(curr_mp3_remix_list) > 1:
+                        audio_lib.merge_mp3(self.song_path, curr_mp3_remix_list, output_filename)
+                    
+                    audio_filename = output_filename # used by osu_general    
+                    # always preview at 1/4 duration of the song
+                    preview_time = math.floor(audio_lib.get_audio_length(self.song_path, audio_filename) / 4) # used by osu_general
+
+                    mp3_dict[self.duration[diff_idx]] = output_filename
             
             
             osu_general = [
@@ -791,6 +798,9 @@ class OJNExtract():
                 f.write(self.image_raw)
         else:
             self.info_log(f"Song id = {self.song_id}, no image found")
+
+        if self.flag_use_mp3:
+            audio_lib.clean_up(self.song_path)
 
 
     # use OJMExtract to extract audio files
