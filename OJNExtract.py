@@ -572,6 +572,8 @@ class OJNExtract():
             
             
             mp3_offset = 0 # If flag_use_mp3 == True, this will be a negative number
+            first_autoplay_ms = 0 # first autoplay event offset
+            first_note_ms = 0 # first note offset
             
 
             # if convert mp3, need to shift the whole chart because autoplay event doesn't start at 0ms
@@ -579,12 +581,22 @@ class OJNExtract():
                 # Get the first autoplay event offset
                 for ogg in self.diff_autoplay_samples[diff_idx]:
                     # ogg = [sample_id, sample_volume, measure, offset, ext]
-                    mp3_offset = -ogg[3]
-
-                    # prevent negative ms notes
-                    if ogg[2] < self.diff_notes[diff_idx][0]['measure_start']:
-                        mp3_offset += self.extra_offset
+                    first_autoplay_ms = ogg[3]
                     break
+
+                # Get the first note offset
+                for note in self.diff_notes[diff_idx]:
+                    first_note_ms = get_note_offset(note["measure_start"])
+                    break
+
+                if first_autoplay_ms < first_note_ms:
+                    mp3_offset = -first_autoplay_ms
+
+                
+                # prevent negative ms notes
+                if ogg[2] < self.diff_notes[diff_idx][0]['measure_start']:
+                    mp3_offset += self.extra_offset
+                    
 
                 # Shift curr_diff_timings by mp3_offset
                 for t in curr_diff_timings:
@@ -697,6 +709,11 @@ class OJNExtract():
                 t: list = self.diff_timings[diff_idx][t_idx] # t = [bpm, measure, offset, ms_per_measure]
                 offset = t[2]
                 ms_per_measure = t[3]
+                if self.flag_nsv:
+                    # try to use the measure 0 (start) bpm if possible
+                    if max(self.bpm, t[0]) % min(self.bpm, t[0]) == 0 and self.bpm < 60000:
+                        ms_per_measure = 60000 / self.bpm
+
                 osu_timing_points.append(f"{offset},{ms_per_measure},4,2,2,10,1,0")
                 if self.flag_nsv:
                     break

@@ -37,12 +37,22 @@ TODO
 
 ## Development Roadmap
 
-* Option to add green line multiplier (keep bpm change but remove sv effect?)
 * Option to remove stacked notes / hidden notes under LN (o2ma3021)
+    * read from .osu
+    * 7 lane lst
+    * check rice len(set(lst)) == len(lst)?
+    * check ln
+    * https://stackoverflow.com/questions/6053974/python-efficiently-check-if-integer-is-within-many-ranges
+* Option to add green line multiplier (keep bpm change but remove sv effect?)
+* Optimize wav extraction (uncommon, but it's way too slow for huge ojm file)
 * Maybe GUI? (very low priority)
-* Optimize wav extraction (it's way too slow, sometimes takes 30s for huge ojm file)
 
 ## Updates
+
+### 2022.08.31 - 0.5.1
+
+* [x] ogg -> mp3 (full hitsound) bug fix
+* [x] Optimized ogg -> mp3 process (runs faster)
 
 ### 2022.08.27 - 0.5.0
 
