@@ -171,9 +171,9 @@ class OJNExtract():
             int(self.LE(self.hexdata[72:76]), 16)
         ]
 
-        self.title = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[108:172]))).decode(self.enc).strip(" ")
-        self.artist = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[172:204]))).decode(self.enc).strip(" ")
-        self.noter = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[204:236]))).decode(self.enc).strip(" ")
+        self.title = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[108:172]))).decode(self.enc).strip(" ").rstrip("\n")
+        self.artist = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[172:204]))).decode(self.enc).strip(" ").rstrip("\n")
+        self.noter = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[204:236]))).decode(self.enc).strip(" ").rstrip("\n")
         self.ojm_name = bytes.fromhex(self.BE(self.NUL_String(self.hexdata[236:268]))).decode(self.enc).strip(" ")
 
         self.cover_size = int(self.LE(self.hexdata[268:272]), 16)
@@ -826,15 +826,18 @@ class OJNExtract():
         self.ojm.song_path = self.song_path
         self.ojm.enc = self.enc
         self.ojm.debug = self.debug
-        self.ojm.dump_file(self.ojm_name)
+        self.ojm.input_path = self.input_path
+        self.ojm.output_path = self.output_path
+        self.ojm.dump_file(self.curr_ojn_file.replace(".ojn", ".ojm"))
     
     
     def o2jam_to_osu(self, ojn_list):
         for ojn in ojn_list:
+            self.curr_ojn_file = ojn
             self.parse_ojn_header(ojn)
             if self.debug:
                 self._ojn_header_debug()
-            self.song_path = os.path.join(self.output_path, self.safe_filename(f"{self.song_id} {self.artist} - {self.title}"))
+            self.song_path = os.path.join(self.output_path, self.safe_filename(f"{self.artist} - {self.title} ({self.song_id})"))
             
             if os.path.exists(self.song_path):
                 self.info_log(f"Song id = {self.song_id} exists, skip!")

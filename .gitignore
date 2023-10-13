@@ -1,5 +1,7 @@
 ref/
 input/
+input2/
+maybe gal/
 output/
 test/
 pass/
@@ -135,3 +137,4 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+*.csv
